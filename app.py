@@ -22,58 +22,82 @@ if data_pack is None:
 model_nlp = data_pack['model']
 df = data_pack['data_sampel']
 
+# --- FITUR BARU: PEMETAAN KATEGORI INSTANSI ---
+# Kita cari tau dulu apa nama kolom aplikasinya (dari Colab kemarin)
+kolom_app = [col for col in df.columns if col not in ['content', 'score', 'Sentimen']][0]
+
+# Mapping/Kategorisasi Aplikasi ke Instansi Induk
+kategori_map = {
+    'Digital Korlantas': 'Kepolisian & Samsat',
+    'Signal Samsat': 'Kepolisian & Samsat',
+    'Satu Sehat': 'Kementerian Kesehatan',
+    'Info BMKG': 'Badan Pusat (Non-Kementerian)'
+}
+
+# Membuat kolom baru bernama 'Kategori_Instansi'
+df['Kategori_Instansi'] = df[kolom_app].map(kategori_map).fillna('Instansi Lainnya')
+
+
 # --- HEADER ---
 st.title("🏛️ GovApp Sentiment Intelligence")
 st.markdown("Platform Analisis Ulasan Aplikasi Pemerintah Berbasis *Natural Language Processing* (NLP).")
 st.markdown("---")
 
 # --- FITUR 1: TESTER SENTIMEN LANGSUNG ---
-st.subheader("🔍 Uji Coba AI Analis")
-st.markdown("Ketikkan simulasi ulasan dari masyarakat, biarkan AI menebak apakah ini pujian atau keluhan.")
+with st.expander("🔍 Uji Coba AI Analis (Klik untuk membuka)"):
+    st.markdown("Ketikkan simulasi ulasan dari masyarakat, biarkan AI menebak apakah ini pujian atau keluhan.")
+    ulasan_baru = st.text_area("Masukkan teks ulasan:", placeholder="Contoh: Aplikasinya sering error pas mau login!")
 
-ulasan_baru = st.text_area("Masukkan teks ulasan:", placeholder="Contoh: Aplikasinya sering error pas mau login, tolong diperbaiki servernya!")
-
-if st.button("Analisis Sentimen", type="primary"):
-    if ulasan_baru:
-        hasil = model_nlp.predict([ulasan_baru])[0]
-        probabilitas = model_nlp.predict_proba([ulasan_baru])[0]
-        
-        # Ambil probabilitas persentase kepastian AI
-        prob_max = max(probabilitas) * 100
-        
-        if hasil == 'Positif':
-            st.success(f"🟢 **Sentimen POSITIF** (Tingkat Keyakinan AI: {prob_max:.1f}%)")
+    if st.button("Analisis Sentimen", type="primary"):
+        if ulasan_baru:
+            hasil = model_nlp.predict([ulasan_baru])[0]
+            probabilitas = model_nlp.predict_proba([ulasan_baru])[0]
+            prob_max = max(probabilitas) * 100
+            
+            if hasil == 'Positif':
+                st.success(f"🟢 **Sentimen POSITIF** (Keyakinan AI: {prob_max:.1f}%)")
+            else:
+                st.error(f"🔴 **Sentimen NEGATIF** (Keyakinan AI: {prob_max:.1f}%)")
         else:
-            st.error(f"🔴 **Sentimen NEGATIF** (Tingkat Keyakinan AI: {prob_max:.1f}%)")
-    else:
-        st.warning("Ketik ulasannya dulu dong!")
+            st.warning("Ketik ulasannya dulu dong!")
 
-st.markdown("---")
+# --- FITUR 2: DASHBOARD ANALITIK (REVISI DOSEN) ---
+st.subheader("📊 Analitik Sentimen Publik (Hierarki Instansi)")
 
-# --- FITUR 2: DASHBOARD ANALITIK ---
-st.subheader("📊 Analitik Sampel Ulasan Aplikasi")
-col1, col2 = st.columns(2)
+# Tab untuk merapikan tampilan
+tab1, tab2 = st.tabs(["🏛️ Rekap per Instansi Induk", "📱 Detail per Aplikasi"])
 
-with col1:
-    st.markdown("**Distribusi Sentimen Keseluruhan**")
-    # Asumsi nama kolomnya 'app_name' (disesuaikan otomatis dari Colab)
-    df_sentimen = df['Sentimen'].value_counts().reset_index()
-    df_sentimen.columns = ['Sentimen', 'Jumlah']
+with tab1:
+    st.markdown("**Perbandingan Sentimen Berdasarkan Kelompok Instansi**")
+    # Menghitung sentimen berdasarkan Kategori Instansi
+    df_instansi = df.groupby(['Kategori_Instansi', 'Sentimen']).size().reset_index(name='Jumlah')
     
-    fig1 = px.pie(df_sentimen, values='Jumlah', names='Sentimen', hole=0.4, 
-                  color='Sentimen', color_discrete_map={'Positif':'#10b981', 'Negatif':'#ef4444'})
-    st.plotly_chart(fig1, use_container_width=True)
+    # Bar Chart Grouped
+    fig_instansi = px.bar(df_instansi, x='Jumlah', y='Kategori_Instansi', color='Sentimen', 
+                          orientation='h', barmode='group',
+                          color_discrete_map={'Positif':'#10b981', 'Negatif':'#ef4444'},
+                          title="Total Kritik & Pujian per Sektor Instansi")
+    fig_instansi.update_layout(yaxis={'categoryorder':'total ascending'})
+    st.plotly_chart(fig_instansi, use_container_width=True)
 
-with col2:
-    st.markdown("**Proporsi Sentimen per Aplikasi**")
-    # Memeriksa nama kolom aplikasi yang disimpan dari Colab
-    kolom_app = [col for col in df.columns if col not in ['content', 'score', 'Sentimen']][0]
-    
-    df_app = df.groupby([kolom_app, 'Sentimen']).size().reset_index(name='Jumlah')
-    fig2 = px.bar(df_app, x='Jumlah', y=kolom_app, color='Sentimen', orientation='h',
-                  color_discrete_map={'Positif':'#10b981', 'Negatif':'#ef4444'})
-    fig2.update_layout(yaxis={'categoryorder':'total ascending'})
-    st.plotly_chart(fig2, use_container_width=True)
+with tab2:
+    col_pie, col_bar = st.columns([1, 2])
+    with col_pie:
+        st.markdown("**Rasio Keseluruhan**")
+        df_sentimen = df['Sentimen'].value_counts().reset_index()
+        df_sentimen.columns = ['Sentimen', 'Jumlah']
+        fig_pie = px.pie(df_sentimen, values='Jumlah', names='Sentimen', hole=0.5, 
+                      color='Sentimen', color_discrete_map={'Positif':'#10b981', 'Negatif':'#ef4444'})
+        st.plotly_chart(fig_pie, use_container_width=True)
+
+    with col_bar:
+        st.markdown("**Proporsi Sentimen Spesifik per Aplikasi**")
+        df_app = df.groupby([kolom_app, 'Sentimen']).size().reset_index(name='Jumlah')
+        # Bar Chart Stacked untuk melihat rasio per aplikasi
+        fig_app = px.bar(df_app, x='Jumlah', y=kolom_app, color='Sentimen', orientation='h',
+                      color_discrete_map={'Positif':'#10b981', 'Negatif':'#ef4444'})
+        fig_app.update_layout(yaxis={'categoryorder':'total ascending'})
+        st.plotly_chart(fig_app, use_container_width=True)
 
 st.markdown("---")
 with st.expander("Lihat Data Mentah Ulasan (Disensor sebagian untuk privasi)"):
